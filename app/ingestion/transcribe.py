@@ -1,48 +1,25 @@
-import sys
-import ctypes
-from pathlib import Path
-
-# Жесткое динамическое подключение библиотек CUDA из site-packages виртуального окружения
-try:
-    import nvidia.cublas.lib
-    import nvidia.cudnn.lib
-
-    cublas_path = list(nvidia.cublas.lib.__path__)[0]
-    cudnn_path = list(nvidia.cudnn.lib.__path__)[0]
-
-    # Принудительно загружаем .so файлы в память процесса
-    ctypes.CDLL(str(Path(cublas_path) / "libcublas.so.12"))
-    ctypes.CDLL(
-        str(Path(cudnn_path) / "libcubnn.so.9")
-    )  # или libcudnn.so.8 в зависимости от версии
-except Exception as e:
-    # Если на сервере настроена системная CUDA, этот шаг пропустится
-    pass
-
-
-from faster_whisper import WhisperModel
 import json
+from pathlib import Path
+from faster_whisper import WhisperModel
 
 # 1. Вычисляем корень проекта (RAG-BOT) относительно этого файла
-# __file__ -> app/ingestion/transcribe.py
-# .parent -> app/ingestion/
-# .parent.parent -> корень проекта RAG-BOT/
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Настройка путей для структуры транскрибирования
 LECTURES_DIR = BASE_DIR / "data" / "lectures"
 TRANSCRIPTS_DIR = BASE_DIR / "data" / "transcripts"
 
-# Выбор модели faster whisper
-model_size = "small"
+# Выбор модели (Переключено на medium для точности китайского языка)
+model_size = "medium"
 model = WhisperModel(model_size, device="cuda", compute_type="int8")
-
 
 # Разделение на сегменты через faster whisper
 video_path = LECTURES_DIR / "video1.mp4"
-segments, info = model.transcribe(str(video_path), beam_size=1)
+segments, info = model.transcribe(
+    str(video_path), beam_size=5, language="zh", vad_filter=True
+)
 
-# Реальная транскрипция в связной список
+# Редукция избыточности: сборка сегментов с округлением таймстампов до 2 знаков
 result_segments = []
 for segment in segments:
     result_segments.append(
@@ -53,7 +30,7 @@ for segment in segments:
         }
     )
 
-# Запись результатов сегмента в json формат в папку transcripts
+# Запись результатов в json формат
 TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 
 out_file = TRANSCRIPTS_DIR / "video1.json"
