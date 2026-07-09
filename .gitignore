@@ -1,8 +1,19 @@
+# Generated artifacts
+logs/
+
+# Data: keep structure, ignore contents
+data/*
+!data/lectures/
+data/lectures/*
+!data/lectures/.gitkeep
+
+# Python
 __pycache__/
 *.py[cod]
 .venv/
 .env
-data/
+
+# Misc
 *.db
 .DS_Store
 .vscode/
