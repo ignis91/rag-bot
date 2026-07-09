@@ -82,15 +82,19 @@ if __name__ == "__main__":
         logger.error("Папки с лекциями не существует")
         sys.exit(1)
 
+    video_files = list(LECTURES_DIR.glob("*.mp4"))
+    if not video_files:
+        logger.warning("Лекции не загружены")
+        sys.exit(0)
+
     TRANSCRIPTS_DIR = BASE_DIR / "data" / "transcripts"
     TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 
     model_size = "small"
     model = WhisperModel(model_size, device="cuda", compute_type="int8")
 
-    for video_path in LECTURES_DIR.glob("*.mp4"):
+    for video_path in video_files:
         try:
             transcribe_file(video_path, model, TRANSCRIPTS_DIR)
         except Exception as e:
             logger.error(f"Ошибка при обработке {video_path}: {e}")
-            continue
