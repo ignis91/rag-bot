@@ -1,4 +1,5 @@
 import json
+import sys
 import logging
 from pathlib import Path
 from faster_whisper import WhisperModel
@@ -22,7 +23,11 @@ console.setFormatter(formatter)
 # Труба 2: файл
 LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
-errfile = logging.FileHandler(LOG_DIR / "errors.log", mode="w", encoding="utf=8")
+errfile = logging.FileHandler(
+    LOG_DIR / "errors.log",
+    mode="a",
+    encoding="utf-8",  # mode="w" для смоук теста. "а" для боевого прогона
+)
 errfile.setLevel(logging.ERROR)
 errfile.setFormatter(formatter)
 
@@ -30,57 +35,62 @@ errfile.setFormatter(formatter)
 logger.addHandler(console)
 logger.addHandler(errfile)
 
-# 1. --------Настройка путей для структуры транскрибирования--------
-LECTURES_DIR = BASE_DIR / "data" / "lectures"
 
-# Проверка существования папки с лекциями/материаллом
-if not LECTURES_DIR.exists():
-    logger.error("Папки с лекциями не существет")
-
-TRANSCRIPTS_DIR = BASE_DIR / "data" / "transcripts"
-TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-
-# 2. --------Выбор модели (Переключено на medium для точности китайского языка)--------
-model_size = "medium"
-model = WhisperModel(model_size, device="cuda", compute_type="int8")
-
-# 3. --------Разделение на сегменты через faster whisper для каждого файла--------
-for video_path in LECTURES_DIR.glob("*.mp4"):
+def transcribe_file(video_path, model, transcripts_dir):
     file_name = video_path.stem
-    out_file = TRANSCRIPTS_DIR / f"{file_name}.json"
+    out_file = transcripts_dir / f"{file_name}.json"
 
-    # Проверка на существование файла
     if out_file.exists():
-        continue
+        return False
 
     logger.info(f"Начинаем транскрибировать {file_name}")
-    try:
-        segments, info = model.transcribe(
-            str(video_path), beam_size=5, language="zh", vad_filter=True
+
+    segments, info = model.transcribe(
+        str(video_path), beam_size=1, language="zh", vad_filter=True
+    )
+
+    # Редукция избыточности: сборка сегментов с округлением таймстампов до 2 знаков
+    result_segments = []
+
+    for segment in segments:
+        result_segments.append(
+            {
+                "start": round(segment.start, 2),
+                "end": round(segment.end, 2),
+                "text": segment.text,
+            }
         )
 
-        # Редукция избыточности: сборка сегментов с округлением таймстампов до 2 знаков
-        result_segments = []
+    # Запись результатов в json формат
+    data = {
+        "video_id": f"{file_name}",
+        "language": info.language,
+        "segments": result_segments,
+    }
 
-        for segment in segments:
-            result_segments.append(
-                {
-                    "start": round(segment.start, 2),
-                    "end": round(segment.end, 2),
-                    "text": segment.text,
-                }
-            )
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return True
 
-        # Запись результатов в json формат
-        data = {
-            "video_id": f"{file_name}",
-            "model": model_size,
-            "language": info.language,
-            "segments": result_segments,
-        }
 
-        with open(out_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"Ошибка при обработке {file_name}: {e}")
-        continue
+if __name__ == "__main__":
+    # 1. --------Настройка путей для структуры транскрибирования--------
+    LECTURES_DIR = BASE_DIR / "data" / "lectures"
+
+    # Проверка существования папки с лекциями/материаллом
+    if not LECTURES_DIR.exists():
+        logger.error("Папки с лекциями не существует")
+        sys.exit(1)
+
+    TRANSCRIPTS_DIR = BASE_DIR / "data" / "transcripts"
+    TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    model_size = "small"
+    model = WhisperModel(model_size, device="cuda", compute_type="int8")
+
+    for video_path in LECTURES_DIR.glob("*.mp4"):
+        try:
+            transcribe_file(video_path, model, TRANSCRIPTS_DIR)
+        except Exception as e:
+            logger.error(f"Ошибка при обработке {video_path}: {e}")
+            continue
