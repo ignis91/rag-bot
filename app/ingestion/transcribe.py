@@ -1,7 +1,6 @@
 import json
 import sys
 import logging
-from pathlib import Path
 from faster_whisper import WhisperModel
 from app.core.config import LECTURES_DIR, TRANSCRIPTS_DIR
 from app.core.log_config import setup_logging
