@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 from app.core.config import LOG_DIR
 
 
