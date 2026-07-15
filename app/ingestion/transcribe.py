@@ -16,7 +16,7 @@ def transcribe_file(video_path, model, transcripts_dir):
     if out_file.exists():
         return False
 
-    logger.info(f"Начинаем транскрибировать {file_name}")
+    logger.info(f"Start transcribing {file_name}")
 
     segments, info = model.transcribe(
         str(video_path), beam_size=1, language="zh", vad_filter=True
@@ -51,12 +51,12 @@ if __name__ == "__main__":
 
     # Проверка существования папки с лекциями/материаллом
     if not LECTURES_DIR.exists():
-        logger.error("Папки с лекциями не существует")
+        logger.error("The folder containing the lecture materials doesn't exist")
         sys.exit(1)
 
     video_files = list(LECTURES_DIR.glob("*.mp4"))
     if not video_files:
-        logger.warning("Лекции не загружены")
+        logger.warning("Lectures haven't been uploaded")
         sys.exit(0)
 
     TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -68,4 +68,4 @@ if __name__ == "__main__":
         try:
             transcribe_file(video_path, model, TRANSCRIPTS_DIR)
         except Exception as e:
-            logger.error(f"Ошибка при обработке {video_path}: {e}")
+            logger.error(f"Processing error {video_path}: {e}")
