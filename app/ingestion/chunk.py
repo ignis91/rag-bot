@@ -65,10 +65,10 @@ def chunk_transcript(transcript: dict, tokenizer, target_tokens: int) -> list[di
 def chunk_file(
     transcript_path: Path, tokenizer, target_tokens: int, chunks_dir: Path
 ) -> bool:
-    output_path = chunks_dir / transcript_path.name
+    final_path = chunks_dir / transcript_path.name
 
-    if output_path.exists():
-        logger.info("Chunks exist, skipping: %s", output_path.name)
+    if final_path.exists():
+        logger.info("Chunks exist, skipping: %s", final_path.name)
         return True
 
     try:
@@ -87,15 +87,19 @@ def chunk_file(
         logger.warning("Zero chunks produced: %s", transcript_path.name)
         return False
 
+    tmp_path = chunks_dir / f"{transcript_path.name}.tmp"
+
     try:
-        output_path.write_text(
+        tmp_path.write_text(
             json.dumps(chunks, ensure_ascii=False, indent=2), encoding="utf-8"
         )
     except OSError as e:
-        logger.error("Failed to write chunks %s: %s", output_path.name, e)
+        logger.error("Failed to write chunks %s: %s", final_path.name, e)
         return False
 
-    logger.info("Wrote %d chunks: %s", len(chunks), output_path.name)
+    tmp_path.replace(final_path)
+
+    logger.info("Wrote %d chunks: %s", len(chunks), final_path.name)
     return True
 
 
