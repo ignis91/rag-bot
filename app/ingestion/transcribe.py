@@ -41,8 +41,10 @@ def transcribe_file(video_path, model, transcripts_dir):
         "segments": result_segments,
     }
 
-    with open(out_file, "w", encoding="utf-8") as f:
+    tmp_file = out_file.with_name(out_file.name + ".tmp")
+    with open(tmp_file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp_file.replace(out_file)
     return True
 
 
