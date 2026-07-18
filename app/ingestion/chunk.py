@@ -1,4 +1,10 @@
-from app.core.config import MODEL_NAME, TRANSCRIPTS_DIR, TARGET_TOKENS, CHUNKS_DIR
+from app.core.config import (
+    MODEL_NAME,
+    TRANSCRIPTS_DIR,
+    TARGET_TOKENS,
+    CHUNKS_DIR,
+    OVERLAP_TOKENS,
+)
 from transformers import AutoTokenizer
 import logging
 import json
@@ -10,12 +16,37 @@ from app.core.log_config import setup_logging
 logger = logging.getLogger(__name__)
 
 
+def _build_chunk(
+    video_id: str,
+    buffer: list,  # список кортежей (idx, segment)
+    segment_start_idx: int,
+    segment_end_idx: int,
+) -> dict:
+    return {
+        "chunk_id": f"{video_id}:{segment_start_idx}",
+        "video_id": video_id,
+        "chunk_start": buffer[0][1]["start"],
+        "chunk_end": buffer[-1][1]["end"],
+        "segment_start_idx": segment_start_idx,
+        "segment_end_idx": segment_end_idx,
+        "text": "\n".join(seg["text"] for _, seg in buffer),
+    }
+
+
 def count_tokens(text: str, tokenizer) -> int:
     tokens_count = len(tokenizer.encode(text))
     return tokens_count
 
 
-def chunk_transcript(transcript: dict, tokenizer, target_tokens: int) -> list[dict]:
+def chunk_transcript(
+    transcript: dict,
+    tokenizer,
+    target_tokens: int,
+    overlap_tokens: int,
+) -> list[dict]:
+    if overlap_tokens >= target_tokens:
+        raise ValueError("Overlap tokens more than target tokens")
+
     video_id = transcript["video_id"]
     segments = transcript["segments"]
 
@@ -28,42 +59,35 @@ def chunk_transcript(transcript: dict, tokenizer, target_tokens: int) -> list[di
 
         if not buffer:
             segment_start_idx = idx
-        buffer.append(segment)
+        buffer.append((idx, segment))
         current_tokens += seg_tokens
 
         # overshoot: сегмент добирается целиком, target_tokens — мягкий ориентир
         if current_tokens >= target_tokens:
-            chunk = {
-                "chunk_id": f"{video_id}:{segment_start_idx}",
-                "video_id": video_id,
-                "chunk_start": buffer[0]["start"],
-                "chunk_end": buffer[-1]["end"],
-                "segment_start_idx": segment_start_idx,
-                "segment_end_idx": idx,
-                "text": "\n".join(seg["text"] for seg in buffer),
-            }
-            chunks.append(chunk)
-            current_tokens = 0
-            buffer = []
+            overlap_sum = 0
+            chunks.append(_build_chunk(video_id, buffer, segment_start_idx, idx))
+            for j in range(len(buffer) - 1, -1, -1):
+                overlap_sum += count_tokens(buffer[j][1]["text"], tokenizer=tokenizer)
+                if overlap_sum >= overlap_tokens:
+                    i = j
+                    break
+            buffer = buffer[i:]
+            segment_start_idx = buffer[0][0]
+            current_tokens = overlap_sum
 
     # хвост, не добравший порога, — последний чанк лекции
     if buffer:
-        chunk = {
-            "chunk_id": f"{video_id}:{segment_start_idx}",
-            "video_id": video_id,
-            "chunk_start": buffer[0]["start"],
-            "chunk_end": buffer[-1]["end"],
-            "segment_start_idx": segment_start_idx,
-            "segment_end_idx": idx,
-            "text": "\n".join(seg["text"] for seg in buffer),
-        }
-        chunks.append(chunk)
+        chunks.append(_build_chunk(video_id, buffer, segment_start_idx, buffer[-1][0]))
 
     return chunks
 
 
 def chunk_file(
-    transcript_path: Path, tokenizer, target_tokens: int, chunks_dir: Path
+    transcript_path: Path,
+    tokenizer,
+    target_tokens: int,
+    chunks_dir: Path,
+    overlap_tokens: int,
 ) -> bool:
     final_path = chunks_dir / transcript_path.name
 
@@ -78,7 +102,7 @@ def chunk_file(
         return False
 
     try:
-        chunks = chunk_transcript(transcript, tokenizer, target_tokens)
+        chunks = chunk_transcript(transcript, tokenizer, target_tokens, overlap_tokens)
     except Exception as e:
         logger.exception("Chunking failed for %s: %s", transcript_path.name, e)
         return False
@@ -117,7 +141,9 @@ def main() -> None:
     total = 0
     for transcript_path in sorted(TRANSCRIPTS_DIR.glob("*.json")):
         total += 1
-        if chunk_file(transcript_path, tokenizer, TARGET_TOKENS, CHUNKS_DIR):
+        if chunk_file(
+            transcript_path, tokenizer, TARGET_TOKENS, CHUNKS_DIR, OVERLAP_TOKENS
+        ):
             ok += 1
 
     logger.info("Done: %d/%d transcripts chunked", ok, total)
