@@ -92,8 +92,12 @@ def chunk_file(
     final_path = chunks_dir / transcript_path.name
 
     if final_path.exists():
-        logger.info("Chunks exist, skipping: %s", final_path.name)
-        return True
+        source_mtime = transcript_path.stat().st_mtime
+        output_mtime = final_path.stat().st_mtime
+        if output_mtime >= source_mtime:
+            logger.info("Chunks up to date, skipping: %s", final_path.name)
+            return True
+        logger.info("Source newer, rechunking: %s", final_path.name)
 
     try:
         transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
