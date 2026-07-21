@@ -16,4 +16,4 @@ __pycache__/
 # Misc
 *.db
 .DS_Store
-.vscode/
+.vscode/.env
