@@ -9,12 +9,12 @@ from app.core.log_config import setup_logging
 logger = logging.getLogger(__name__)
 
 
-def transcribe_file(video_path, model, transcripts_dir):
+def transcribe_file(video_path, model, transcripts_dir) -> None:
     file_name = video_path.stem
     out_file = transcripts_dir / f"{file_name}.json"
 
     if out_file.exists():
-        return False
+        return
 
     logger.info(f"Start transcribing {file_name}")
 
@@ -45,7 +45,7 @@ def transcribe_file(video_path, model, transcripts_dir):
     with open(tmp_file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     tmp_file.replace(out_file)
-    return True
+    return
 
 
 if __name__ == "__main__":
