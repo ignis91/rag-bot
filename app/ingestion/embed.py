@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def embed_file(
     chunk_path: str, model: SentenceTransformer, batch_size: int, conn
 ) -> None:
-
+    """embed one chunk file into the DB. Idempotent per video_id, all-or-nothing."""
     with open(chunk_path, "r", encoding="utf-8") as f:
         chunks: list[dict] = json.load(f)
 
@@ -22,8 +22,10 @@ def embed_file(
         logger.warning("Chunks %s is empty!", chunk_path)
         return
 
+    # from payload, not filename: idempotency key must survive a rename
     video_id = chunks[0]["video_id"]
 
+    # safe only because the write below is atomic - partial rows would skip forever
     with conn.cursor() as curr:
         curr.execute(
             "SELECT EXISTS(SELECT 1 FROM embeddings WHERE video_id = %s);", (video_id,)
@@ -37,6 +39,7 @@ def embed_file(
     texts = [chunk["text"] for chunk in chunks]
     embeddings = model.encode(texts, batch_size=batch_size)
 
+    # one transaction per file: kills the partial-state case
     with conn.transaction():
         with conn.cursor() as curr:
             for chunk, embedding in zip(chunks, embeddings):
@@ -73,15 +76,21 @@ def main() -> None:
         logger.error("Chunks directory doesn't exist")
         sys.exit(1)
 
+    # 3GB VRAM; peak scales as batch_size x max_seq_len^2 due to padding
     batch_size = 8
     model = SentenceTransformer(MODEL_NAME)
 
     ok = 0
     total = 0
+
+    # autocommit=True so conn.transaction() is the only explicit boundary
     with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
+        # numpy.ndarray -> pgvector adapter
         register_vector(conn)
         for chunk_path in sorted(CHUNKS_DIR.glob("*.json")):
             total += 1
+
+            # error boundary per file: one bad file must not kill the run
             try:
                 embed_file(chunk_path, model, batch_size, conn)
                 ok += 1

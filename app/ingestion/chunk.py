@@ -12,16 +12,19 @@ import sys
 from pathlib import Path
 from app.core.log_config import setup_logging
 
+"""Split transcripts into overlapping token-bounded chunks."""
 
 logger = logging.getLogger(__name__)
 
 
 def _build_chunk(
     video_id: str,
-    buffer: list,  # список кортежей (idx, segment)
+    buffer: list,  # (idx, segment) tuples
     segment_start_idx: int,
     segment_end_idx: int,
 ) -> dict:
+
+    # chunk_id derived from data, not runtime state -> stable across reruns
     return {
         "chunk_id": f"{video_id}:{segment_start_idx}",
         "video_id": video_id,
@@ -44,6 +47,9 @@ def chunk_transcript(
     target_tokens: int,
     overlap_tokens: int,
 ) -> list[dict]:
+
+    # degenerate case: the retained overlap would already exceed target,
+    # so the buffer never shrinks
     if overlap_tokens >= target_tokens:
         raise ValueError("Overlap tokens more than target tokens")
 
@@ -57,15 +63,18 @@ def chunk_transcript(
     for idx, segment in enumerate(segments):
         seg_tokens = count_tokens(segment["text"], tokenizer=tokenizer)
 
+        # a fresh buffer anchors the chunk id
         if not buffer:
             segment_start_idx = idx
         buffer.append((idx, segment))
         current_tokens += seg_tokens
 
-        # overshoot: сегмент добирается целиком, target_tokens — мягкий ориентир
+        # overshoot: segments are taken whole, target_tokens is a soft target
         if current_tokens >= target_tokens:
             overlap_sum = 0
             chunks.append(_build_chunk(video_id, buffer, segment_start_idx, idx))
+
+            # walk back from the end to collect the overlap tail
             for j in range(len(buffer) - 1, -1, -1):
                 overlap_sum += count_tokens(buffer[j][1]["text"], tokenizer=tokenizer)
                 if overlap_sum >= overlap_tokens:
@@ -75,7 +84,7 @@ def chunk_transcript(
             segment_start_idx = buffer[0][0]
             current_tokens = overlap_sum
 
-    # хвост, не добравший порога, — последний чанк лекции
+    # tail below the threshold becomes the last chunk of the lecture
     if buffer:
         chunks.append(_build_chunk(video_id, buffer, segment_start_idx, buffer[-1][0]))
 
@@ -91,6 +100,7 @@ def chunk_file(
 ) -> bool:
     final_path = chunks_dir / transcript_path.name
 
+    # mtime-only invalidation: an edit preserving mtime is missed
     if final_path.exists():
         source_mtime = transcript_path.stat().st_mtime
         output_mtime = final_path.stat().st_mtime
@@ -115,6 +125,7 @@ def chunk_file(
         logger.warning("Zero chunks produced: %s", transcript_path.name)
         return False
 
+    # write-then-rename: a crash leaves the old file intact, not a truncated one
     tmp_path = chunks_dir / f"{transcript_path.name}.tmp"
 
     try:
