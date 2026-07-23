@@ -9,6 +9,7 @@ data/lectures/*
 
 # Python
 __pycache__/
+.ruff_cache/
 *.py[cod]
 .venv/
 .env
@@ -17,3 +18,5 @@ __pycache__/
 *.db
 .DS_Store
 .vscode/.env
+scripts/snapshot.sh
+snapshot.txt
